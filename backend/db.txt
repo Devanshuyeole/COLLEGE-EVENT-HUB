@@ -1,0 +1,116 @@
+CREATE TABLE Users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    college VARCHAR(100),
+    role ENUM('student', 'college_admin', 'super_admin') DEFAULT 'student'
+);
+use CollegeEventHub;
+CREATE TABLE Events (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    college_id INT NOT NULL,
+    title VARCHAR(150) NOT NULL,
+    description TEXT,
+    category ENUM('sports', 'hackathon', 'cultural', 'workshop') NOT NULL,
+    location VARCHAR(255),
+    start_date DATETIME NOT NULL,
+    end_date DATETIME NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (college_id) REFERENCES Users(id) ON DELETE CASCADE
+);
+CREATE TABLE Registrations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    event_id INT NOT NULL,
+    user_id INT NOT NULL,
+    status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (event_id) REFERENCES Events(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
+);
+CREATE TABLE Feedback (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    event_id INT NOT NULL,
+    user_id INT NOT NULL,
+    rating INT CHECK (rating BETWEEN 1 AND 5),
+    comments TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (event_id) REFERENCES Events(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
+);
+CREATE TABLE AdminLogs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    action VARCHAR(255) NOT NULL,
+    user_id INT NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
+);
+CREATE TABLE EventComments (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  event_id INT,
+  user_id INT,
+  comment TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES Events(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
+);
+
+EVENTS
+
+	Field	Type	Null	Key	Default	Extra
+	id	int	NO	PRI		auto_increment
+	college_id	int	NO	MUL		
+	title	varchar(150)	NO			
+	description	text	YES			
+	category	enum('sports','hackathon','cultural','workshop')	NO			
+	location	varchar(255)	YES			
+	start_date	datetime	NO			
+	end_date	datetime	NO			
+	created_at	timestamp	YES		CURRENT_TIMESTAMP	DEFAULT_GENERATED
+
+    Users
+
+    	Field	Type	Null	Key	Default	Extra
+	id	int	NO	PRI		auto_increment
+	name	varchar(100)	NO			
+	email	varchar(100)	NO	UNI		
+	password	varchar(255)	NO			
+	college	varchar(100)	YES			
+	role	enum('student','college_admin','super_admin')	YES		student	
+
+
+    Registrations 
+
+    	Field	Type	Null	Key	Default	Extra
+	id	int	NO	PRI		auto_increment
+	event_id	int	NO	MUL		
+	user_id	int	NO	MUL		
+	status	enum('pending','approved','rejected')	YES		pending	
+	timestamp	timestamp	YES		CURRENT_TIMESTAMP	DEFAULT_GENERATED
+
+
+    Feedback
+
+    	Field	Type	Null	Key	Default	Extra
+	id	int	NO	PRI		auto_increment
+	event_id	int	NO	MUL		
+	user_id	int	NO	MUL		
+	rating	int	YES			
+	comments	text	YES			
+	timestamp	timestamp	YES		CURRENT_TIMESTAMP	DEFAULT_GENERATED
+
+
+    AdminLogs
+
+    id	int	NO	PRI		auto_increment
+action	varchar(255)	NO			
+user_id	int	NO	MUL		
+timestamp	timestamp	YES		CURRENT_TIMESTAMP	DEFAULT_GENERATED
+
+
+    EventComments
+id	int	NO	PRI		auto_increment
+event_id	int	YES	MUL		
+user_id	int	YES	MUL		
+comment	text	YES			
+created_at	timestamp	YES		CURRENT_TIMESTAMP	DEFAULT_GENERATED
