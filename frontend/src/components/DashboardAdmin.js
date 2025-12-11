@@ -15,8 +15,7 @@ import {
   People as PeopleIcon, CloudUpload as CloudUploadIcon, Notifications as NotificationsIcon
 } from '@mui/icons-material';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
-
-// const COLORS = ['#667eea', '#764ba2', '#f093fb', '#4facfe'];
+import NotificationDialog from './NotificationDialog';
 
 const DashboardAdmin = () => {
   const [events, setEvents] = useState([]);
@@ -46,9 +45,7 @@ const DashboardAdmin = () => {
   const [imagePreview, setImagePreview] = useState(null);
   const [uploadingCSV, setUploadingCSV] = useState(false);
   const [csvFile, setCSVFile] = useState(null);
-  const [notificationDialog, setNotificationDialog] = useState(false);
-  const [notificationData, setNotificationData] = useState({ title: '', message: '' });
-
+  const [notificationDialogOpen, setNotificationDialogOpen] = useState(false);
 
   const userName = localStorage.getItem('userName') || 'Admin';
 
@@ -83,7 +80,6 @@ const DashboardAdmin = () => {
       setError('');
       const userId = localStorage.getItem('userId');
 
-      // Create FormData for image upload
       const formData = new FormData();
       formData.append('title', eventFormData.title);
       formData.append('description', eventFormData.description);
@@ -107,6 +103,7 @@ const DashboardAdmin = () => {
         title: '', description: '', category: '',
         location: '', start_date: '', end_date: '', image: null
       });
+      setImagePreview(null);
       setSuccessMessage('Event created successfully!');
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to create event.');
@@ -115,13 +112,12 @@ const DashboardAdmin = () => {
     }
   };
 
-
   const handleDeleteEvent = async (eventId) => {
     if (window.confirm('Are you sure you want to delete this event? This cannot be undone.')) {
       try {
         setError('');
         await api.delete(`/events/${eventId}`);
-        await fetchEvents(); // Refresh list
+        await fetchEvents();
         setSuccessMessage('Event deleted successfully!');
       } catch (err) {
         setError(err.response?.data?.message || 'Failed to delete event.');
@@ -134,23 +130,22 @@ const DashboardAdmin = () => {
     if (files && files[0]) {
       const file = files[0];
 
-      // Validate file type
       if (!file.type.startsWith('image/')) {
         setError('Please select a valid image file');
         return;
       }
 
-      // Validate file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         setError('Image size should not exceed 5MB');
         return;
       }
 
-      setError(''); // Clear any previous errors
+      setError('');
       setEventFormData({ ...eventFormData, image: file });
       setImagePreview(URL.createObjectURL(file));
     }
   };
+
   const fetchRegistrations = async (eventId) => {
     try {
       setSelectedEvent(eventId);
@@ -232,18 +227,6 @@ const DashboardAdmin = () => {
     }
   };
 
-  const handleBroadcastNotification = async () => {
-    try {
-      await api.post('/notifications/broadcast', notificationData);
-      setSuccessMessage('Notification sent to all students!');
-      setNotificationDialog(false);
-      setNotificationData({ title: '', message: '' });
-    } catch (err) {
-      setError('Failed to send notification');
-    }
-  };
-
-
   const getStatusColor = (status) => {
     switch (status) {
       case 'approved': return 'success';
@@ -266,7 +249,6 @@ const DashboardAdmin = () => {
   const filteredEvents = selectedCategory === 'All'
     ? events
     : events.filter(ev => (ev.category || '').trim().toLowerCase() === selectedCategory.toLowerCase());
-
 
   if (loading) {
     return (
@@ -390,16 +372,18 @@ const DashboardAdmin = () => {
             </Card>
           </Grid>
         </Grid>
+
+        {/* CSV Import Section */}
         <Box sx={{ mb: 3 }}>
           <Typography variant="h6" sx={{ mb: 2 }}>Bulk Import Events</Typography>
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
             <Button variant="outlined" component="label">
               Select CSV File
               <input
                 type="file"
                 hidden
                 accept=".csv"
-                onChange={(e) => setCSVFile(e.target.files)}
+                onChange={(e) => setCSVFile(e.target.files[0])}
               />
             </Button>
 
@@ -422,40 +406,32 @@ const DashboardAdmin = () => {
           </Box>
         </Box>
 
-        <Dialog open={notificationDialog} onClose={() => setNotificationDialog(false)}>
-          <DialogTitle>Send Notification to All Students</DialogTitle>
-          <DialogContent>
-            <TextField
-              label="Title"
-              fullWidth
-              value={notificationData.title}
-              onChange={(e) => setNotificationData({ ...notificationData, title: e.target.value })}
-              sx={{ mb: 2, mt: 1 }}
-            />
-            <TextField
-              label="Message"
-              fullWidth
-              multiline
-              rows={4}
-              value={notificationData.message}
-              onChange={(e) => setNotificationData({ ...notificationData, message: e.target.value })}
-            />
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setNotificationDialog(false)}>Cancel</Button>
-            <Button variant="contained" onClick={handleBroadcastNotification}>Send</Button>
-          </DialogActions>
-        </Dialog>
-
-        {/* Add button */}
+        {/* Send Notification Button */}
         <Button
           variant="contained"
           startIcon={<NotificationsIcon />}
-          onClick={() => setNotificationDialog(true)}
-          sx={{ mb: 3,}}
+          onClick={() => setNotificationDialogOpen(true)}
+          sx={{ 
+            mb: 3,
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            '&:hover': {
+              background: 'linear-gradient(135deg, #5568d3 0%, #6b3f8e 100%)',
+            },
+          }}
         >
           Send Notification
         </Button>
+
+        {/* Enhanced Notification Dialog */}
+        <NotificationDialog
+          open={notificationDialogOpen}
+          onClose={() => setNotificationDialogOpen(false)}
+          onSuccess={(message) => {
+            setSuccessMessage(message);
+            setNotificationDialogOpen(false);
+          }}
+        />
+
         {error && (
           <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setError('')}>
             {error}
@@ -522,7 +498,6 @@ const DashboardAdmin = () => {
               </Select>
             </FormControl>
 
-
             {/* Events Grid */}
             {filteredEvents.length === 0 ? (
               <Alert severity="info">
@@ -545,8 +520,6 @@ const DashboardAdmin = () => {
                         transition: 'all 0.3s ease',
                       }}
                     >
-                      {/* Event Image */}
-
                       {ev.image_url ? (
                         <Box
                           component="img"
@@ -574,12 +547,10 @@ const DashboardAdmin = () => {
                         </Box>
                       )}
                       <CardContent sx={{ flex: 1 }}>
-                        {/* Event Title */}
                         <Typography variant="h6" sx={{ mb: 1 }}>
                           {ev.title}
                         </Typography>
 
-                        {/* Category Chip */}
                         <Chip
                           icon={<CategoryIcon />}
                           label={ev.category}
@@ -591,7 +562,6 @@ const DashboardAdmin = () => {
                           }}
                         />
 
-                        {/* Location */}
                         <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                           <LocationIcon sx={{ fontSize: 18, mr: 1, color: '#667eea' }} />
                           <Typography variant="body2" color="textSecondary">
@@ -599,7 +569,6 @@ const DashboardAdmin = () => {
                           </Typography>
                         </Box>
 
-                        {/* Dates */}
                         <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                           <ScheduleIcon sx={{ fontSize: 18, mr: 1, color: '#667eea' }} />
                           <Typography variant="body2" color="textSecondary">
@@ -607,13 +576,11 @@ const DashboardAdmin = () => {
                           </Typography>
                         </Box>
 
-                        {/* Description Preview */}
                         <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
                           {ev.description.substring(0, 100)}...
                         </Typography>
                       </CardContent>
 
-                      {/* Action Buttons */}
                       <Box sx={{ display: 'flex', gap: 1, p: 2, borderTop: '1px solid #eee' }}>
                         <Button
                           variant="outlined"
@@ -821,7 +788,7 @@ const DashboardAdmin = () => {
                               <TableCell>
                                 <Rating value={fb.rating} readOnly size="small" />
                               </TableCell>
-                              <TableCell>{fb.comments || 'No comments'}</TableCell>
+                              <TableCell>{fb.comments || 'N/A'}</TableCell>
                               <TableCell>{new Date(fb.timestamp).toLocaleDateString()}</TableCell>
                             </TableRow>
                           ))}
@@ -836,123 +803,87 @@ const DashboardAdmin = () => {
         )}
 
         {/* Create Event Dialog */}
-        <Dialog
-          open={openCreateDialog}
-          onClose={() => {
-            setOpenCreateDialog(false);
-            setImagePreview(null);
-          }}
-          maxWidth="sm"
-          fullWidth
-        >
+        <Dialog open={openCreateDialog} onClose={() => setOpenCreateDialog(false)} maxWidth="md" fullWidth>
           <DialogTitle>Create New Event</DialogTitle>
           <DialogContent>
-            <TextField
-              fullWidth
-              label="Title"
-              value={eventFormData.title}
-              onChange={(e) => setEventFormData({ ...eventFormData, title: e.target.value })}
-              sx={{ mb: 2, mt: 1 }}
-            />
-            <TextField
-              fullWidth
-              multiline
-              rows={3}
-              label="Description"
-              value={eventFormData.description}
-              onChange={(e) => setEventFormData({ ...eventFormData, description: e.target.value })}
-              sx={{ mb: 2 }}
-            />
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <InputLabel>Category</InputLabel>
-              <Select
-                value={eventFormData.category}
-                label="Category"
-                onChange={(e) => setEventFormData({ ...eventFormData, category: e.target.value })}
-              >
-                <MenuItem value="Sports">Sports</MenuItem>
-                <MenuItem value="Hackathon">Hackathon</MenuItem>
-                <MenuItem value="Cultural">Cultural</MenuItem>
-                <MenuItem value="Workshop">Workshop</MenuItem>
-              </Select>
-            </FormControl>
-            <TextField
-              fullWidth
-              label="Location"
-              value={eventFormData.location}
-              onChange={(e) => setEventFormData({ ...eventFormData, location: e.target.value })}
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              type="datetime-local"
-              label="Start Date"
-              InputLabelProps={{ shrink: true }}
-              value={eventFormData.start_date}
-              onChange={(e) => setEventFormData({ ...eventFormData, start_date: e.target.value })}
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              type="datetime-local"
-              label="End Date"
-              InputLabelProps={{ shrink: true }}
-              value={eventFormData.end_date}
-              onChange={(e) => setEventFormData({ ...eventFormData, end_date: e.target.value })}
-              sx={{ mb: 2 }}
-            />
-            {/* Image Upload Section */}
-            <Box sx={{ mb: 2 }}>
-              <input
-                accept="image/*"
-                style={{ display: 'none' }}
-                id="raised-button-file"
-                type="file"
-                onChange={handleImageChange}
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+              <TextField
+                label="Event Title"
+                fullWidth
+                value={eventFormData.title}
+                onChange={(e) => setEventFormData({ ...eventFormData, title: e.target.value })}
               />
-              <label htmlFor="raised-button-file">
+              <TextField
+                label="Description"
+                fullWidth
+                multiline
+                rows={4}
+                value={eventFormData.description}
+                onChange={(e) => setEventFormData({ ...eventFormData, description: e.target.value })}
+              />
+              <FormControl fullWidth>
+                <InputLabel>Category</InputLabel>
+                <Select
+                  value={eventFormData.category}
+                  label="Category"
+                  onChange={(e) => setEventFormData({ ...eventFormData, category: e.target.value })}
+                >
+                  <MenuItem value="Sports">Sports</MenuItem>
+                  <MenuItem value="Hackathon">Hackathon</MenuItem>
+                  <MenuItem value="Cultural">Cultural</MenuItem>
+                  <MenuItem value="Workshop">Workshop</MenuItem>
+                </Select>
+              </FormControl>
+              <TextField
+                label="Location"
+                fullWidth
+                value={eventFormData.location}
+                onChange={(e) => setEventFormData({ ...eventFormData, location: e.target.value })}
+              />
+              <TextField
+                label="Start Date"
+                type="datetime-local"
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+                value={eventFormData.start_date}
+                onChange={(e) => setEventFormData({ ...eventFormData, start_date: e.target.value })}
+              />
+              <TextField
+                label="End Date"
+                type="datetime-local"
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+                value={eventFormData.end_date}
+                onChange={(e) => setEventFormData({ ...eventFormData, end_date: e.target.value })}
+              />
+              <Box>
                 <Button
                   variant="outlined"
-                  component="span"
+                  component="label"
                   startIcon={<CloudUploadIcon />}
                   fullWidth
                 >
-                  Upload Event Image (Optional)
+                  Upload Event Image
+                  <input type="file" hidden accept="image/*" onChange={handleImageChange} />
                 </Button>
-              </label>
-
-              {/* Image Preview */}
-              {imagePreview && (
-                <Box sx={{ mt: 2, textAlign: 'center' }}>
-                  <img
-                    src={imagePreview}
-                    alt="Preview"
-                    style={{
-                      maxWidth: '100%',
-                      maxHeight: '200px',
-                      borderRadius: '8px',
-                      objectFit: 'cover'
-                    }}
-                  />
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      setImagePreview(null);
-                      setEventFormData({ ...eventFormData, image: null });
-                    }}
-                    sx={{ mt: 1 }}
-                  >
-                    Remove Image
-                  </Button>
-                </Box>
-              )}
+                {imagePreview && (
+                  <Box sx={{ mt: 2, textAlign: 'center' }}>
+                    <img src={imagePreview} alt="Preview" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8 }} />
+                  </Box>
+                )}
+              </Box>
             </Box>
-
-
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setOpenCreateDialog(false)}>Cancel</Button>
-            <Button onClick={handleCreateEvent} variant="contained" disabled={creating}>
+            <Button
+              variant="contained"
+              onClick={handleCreateEvent}
+              disabled={creating}
+              sx={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              }}
+            >
               {creating ? <CircularProgress size={20} /> : 'Create Event'}
             </Button>
           </DialogActions>
@@ -962,42 +893,44 @@ const DashboardAdmin = () => {
         <Dialog open={openFeedback} onClose={() => setOpenFeedback(false)} maxWidth="sm" fullWidth>
           <DialogTitle>Submit Feedback</DialogTitle>
           <DialogContent>
-            <Typography variant="body1" gutterBottom sx={{ mt: 2 }}>
-              How would you rate this event?
-            </Typography>
-            <Rating
-              name="event-rating"
-              value={feedback.rating}
-              onChange={(event, newValue) => setFeedback({ ...feedback, rating: newValue })}
-              precision={0.5}
-              size="large"
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              multiline
-              rows={4}
-              label="Comments (Optional)"
-              placeholder="Share your experience..."
-              value={feedback.comments}
-              onChange={(e) => setFeedback({ ...feedback, comments: e.target.value })}
-              sx={{ mb: 2 }}
-            />
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 2 }}>
+              <Box>
+                <Typography variant="body2" gutterBottom>
+                  Your Rating
+                </Typography>
+                <Rating
+                  value={feedback.rating}
+                  onChange={(e, newValue) => setFeedback({ ...feedback, rating: newValue })}
+                  size="large"
+                />
+              </Box>
+              <TextField
+                label="Comments (Optional)"
+                multiline
+                rows={4}
+                fullWidth
+                value={feedback.comments}
+                onChange={(e) => setFeedback({ ...feedback, comments: e.target.value })}
+                placeholder="Share your thoughts about the event..."
+              />
+            </Box>
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setOpenFeedback(false)}>Cancel</Button>
             <Button
-              onClick={handleSubmitFeedback}
               variant="contained"
-              disabled={!feedback.rating || !feedback.event_id || submittingFeedback}
+              onClick={handleSubmitFeedback}
+              disabled={submittingFeedback}
+              sx={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              }}
             >
-              {submittingFeedback ? <CircularProgress size={20} /> : 'Submit'}
+              {submittingFeedback ? <CircularProgress size={20} /> : 'Submit Feedback'}
             </Button>
           </DialogActions>
         </Dialog>
       </Container>
     </Box>
-
   );
 };
 

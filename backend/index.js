@@ -434,56 +434,228 @@ app.get("/registrations/user/:userId", (req, res) => {
   });
 });
 
-// Send notification to all users (Admin only)
+// Get all students for selection
+app.get("/admin/students", 
+  authenticateToken, 
+  authorizeRoles("college_admin", "super_admin"), 
+  async (req, res) => {
+    try {
+      const [students] = await db.promise().query(
+        'SELECT id, name, email, college FROM Users WHERE role = ? ORDER BY name',
+        ['student']
+      );
+      res.json(students);
+    } catch (error) {
+      console.error('Error fetching students:', error);
+      res.status(500).json({ message: "Failed to fetch students" });
+    }
+});
+
+// Get all events for selection
+app.get("/admin/events-list", 
+  authenticateToken, 
+  authorizeRoles("college_admin", "super_admin"), 
+  async (req, res) => {
+    try {
+      const [events] = await db.promise().query(
+        `SELECT e.id, e.title, e.start_date, 
+         COUNT(r.id) as registration_count
+         FROM Events e
+         LEFT JOIN Registrations r ON e.id = r.event_id
+         WHERE e.college_id = ?
+         GROUP BY e.id
+         ORDER BY e.start_date DESC`,
+        [req.user.id]
+      );
+      res.json(events);
+    } catch (error) {
+      console.error('Error fetching events:', error);
+      res.status(500).json({ message: "Failed to fetch events" });
+    }
+});
+
+// Get students registered for specific event
+app.get("/admin/event/:eventId/students", 
+  authenticateToken, 
+  authorizeRoles("college_admin", "super_admin"), 
+  async (req, res) => {
+    try {
+      const [students] = await db.promise().query(
+        `SELECT DISTINCT u.id, u.name, u.email, r.status
+         FROM Users u
+         JOIN Registrations r ON u.id = r.user_id
+         WHERE r.event_id = ? AND u.role = 'student'
+         ORDER BY u.name`,
+        [req.params.eventId]
+      );
+      res.json(students);
+    } catch (error) {
+      console.error('Error fetching event students:', error);
+      res.status(500).json({ message: "Failed to fetch event students" });
+    }
+});
+
+// Enhanced notification broadcast with targeting
 app.post("/notifications/broadcast", 
   authenticateToken, 
   authorizeRoles("college_admin", "super_admin"), 
   async (req, res) => {
     try {
-      const { title, message, type = 'general' } = req.body;
+      const { title, message, type = 'general', targetType, targetIds, eventId } = req.body;
+      
+      console.log('=== NOTIFICATION REQUEST ===');
+      console.log('Request body:', JSON.stringify(req.body, null, 2));
+      console.log('Title:', title);
+      console.log('Message:', message);
+      console.log('Target Type:', targetType);
+      console.log('Target IDs:', targetIds);
+      console.log('Event ID:', eventId);
+      console.log('===========================');
       
       // Validate input
       if (!title || !message) {
+        console.log('❌ Missing title or message');
         return res.status(400).json({ 
           message: "Title and message are required" 
         });
       }
 
-      // Get all student users
-      const [students] = await db.promise().query(
-        'SELECT id FROM Users WHERE role = ?',
-        ['student']
-      );
-
-      if (students.length === 0) {
-        return res.status(404).json({ 
-          message: "No students found to notify" 
+      if (!targetType || !['all', 'specific', 'event'].includes(targetType)) {
+        console.log('❌ Invalid or missing targetType:', targetType);
+        return res.status(400).json({ 
+          message: "Valid targetType is required (all, specific, or event)" 
         });
       }
 
-      // Create notification for each student
+      let targetStudents = [];
+
+      // Determine target students based on targetType
+      switch (targetType) {
+        case 'all':
+          console.log('📢 Processing ALL students');
+          const [allStudents] = await db.promise().query(
+            'SELECT id FROM Users WHERE role = ?',
+            ['student']
+          );
+          targetStudents = allStudents;
+          console.log(`✅ Found ${allStudents.length} total students`);
+          break;
+
+        case 'specific':
+          console.log('👥 Processing SPECIFIC students');
+          console.log('Received targetIds:', targetIds);
+          
+          if (!targetIds || !Array.isArray(targetIds) || targetIds.length === 0) {
+            console.log('❌ Invalid targetIds array');
+            return res.status(400).json({ 
+              message: "targetIds array is required for specific targeting" 
+            });
+          }
+          
+          // Validate that all IDs are students
+          const placeholders = targetIds.map(() => '?').join(',');
+          console.log(`Query: SELECT id FROM Users WHERE id IN (${placeholders}) AND role = 'student'`);
+          console.log('Parameters:', targetIds);
+          
+          const [specificStudents] = await db.promise().query(
+            `SELECT id FROM Users WHERE id IN (${placeholders}) AND role = 'student'`,
+            targetIds
+          );
+          targetStudents = specificStudents;
+          console.log(`✅ Found ${specificStudents.length} valid students out of ${targetIds.length} provided IDs`);
+          console.log('Valid student IDs:', specificStudents.map(s => s.id));
+          
+          if (specificStudents.length === 0) {
+            console.log('❌ No valid students found');
+            return res.status(404).json({ 
+              message: "No valid students found in the provided IDs" 
+            });
+          }
+          break;
+
+        case 'event':
+          console.log('🎉 Processing EVENT registrants');
+          console.log('Event ID:', eventId);
+          
+          if (!eventId) {
+            console.log('❌ Missing eventId');
+            return res.status(400).json({ 
+              message: "eventId is required for event targeting" 
+            });
+          }
+          
+          const [eventStudents] = await db.promise().query(
+            `SELECT DISTINCT u.id 
+             FROM Users u
+             JOIN Registrations r ON u.id = r.user_id
+             WHERE r.event_id = ? AND u.role = 'student'`,
+            [eventId]
+          );
+          targetStudents = eventStudents;
+          console.log(`✅ Found ${eventStudents.length} students registered for event ${eventId}`);
+          console.log('Student IDs:', eventStudents.map(s => s.id));
+          break;
+
+        default:
+          console.log('❌ Invalid targetType:', targetType);
+          return res.status(400).json({ 
+            message: "Invalid targetType" 
+          });
+      }
+
+      if (targetStudents.length === 0) {
+        console.log('❌ No students found for specified target');
+        return res.status(404).json({ 
+          message: "No students found for the specified target" 
+        });
+      }
+
+      // Create notification for each target student
+      console.log(`📨 Creating notifications for ${targetStudents.length} students...`);
       let successCount = 0;
       let errorCount = 0;
+      const errors = [];
 
-      for (const student of students) {
+      for (const student of targetStudents) {
         try {
           await db.promise().query(
             'INSERT INTO Notifications (user_id, event_id, title, message, type) VALUES (?, ?, ?, ?, ?)',
-            [student.id, null, title, message, type]
+            [student.id, eventId || null, title, message, type]
           );
           successCount++;
+          console.log(`✓ Notification sent to user ${student.id}`);
         } catch (err) {
+          console.error(`✗ Failed to create notification for user ${student.id}:`, err.message);
           errorCount++;
+          errors.push(`Failed for user ${student.id}: ${err.message}`);
         }
       }
 
+      // Log admin action
+      await db.promise().query(
+        "INSERT INTO AdminLogs (action, user_id) VALUES (?, ?)",
+        [`Sent notification to ${successCount} students (type: ${targetType})`, req.user.id]
+      );
+
+      console.log('=== NOTIFICATION SUMMARY ===');
+      console.log(`✅ Success: ${successCount}`);
+      console.log(`❌ Failed: ${errorCount}`);
+      console.log(`📊 Total: ${targetStudents.length}`);
+      console.log(`🎯 Target Type: ${targetType}`);
+      console.log('===========================');
+
       res.json({ 
-        message: `Notification sent to ${successCount} students successfully`,
+        message: `Notification sent to ${successCount} student${successCount !== 1 ? 's' : ''} successfully`,
         success: successCount,
         failed: errorCount,
-        total: students.length
+        total: targetStudents.length,
+        targetType: targetType,
+        targetStudentIds: targetStudents.map(s => s.id),
+        errors: errorCount > 0 ? errors : undefined
       });
     } catch (error) {
+      console.error('❌ BROADCAST NOTIFICATION ERROR:', error);
+      console.error('Stack trace:', error.stack);
       res.status(500).json({ 
         message: "Failed to broadcast notifications",
         error: error.message 
@@ -1092,28 +1264,6 @@ app.put("/notifications/read-all", authenticateToken, async (req, res) => {
   }
 });
 
-// Send notification to all users (Admin only)
-app.post("/notifications/broadcast", authenticateToken, authorizeRoles("college_admin", "super_admin"), async (req, res) => {
-  try {
-    const { title, message, type = 'new_event' } = req.body;
-    
-    // Get all student users
-    const [students] = await db.promise().query(
-      'SELECT id FROM Users WHERE role = ?',
-      ['student']
-    );
-    
-    // Create notification for each student
-    for (const student of students) {
-      await createNotification(student.id, null, title, message, type);
-    }
-    
-    res.json({ message: `Notifications sent to ${students.length} students` });
-  } catch (error) {
-    console.error('Broadcast notification error:', error);
-    res.status(500).json({ message: "Failed to broadcast notifications" });
-  }
-});
 // Award points to user
 async function awardPoints(userId, points, reason) {
   try {

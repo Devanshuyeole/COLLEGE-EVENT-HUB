@@ -477,7 +477,7 @@ const Navbar = ({ darkMode, setDarkMode }) => {
             {/* Right Side Actions */}
             <Box sx={{ flexGrow: 0, display: 'flex', alignItems: 'center', gap: 1 }}>
               {/* Dark Mode Toggle */}
-              <Tooltip title={darkMode ? 'Light Mode' : 'Dark Mode'}>
+              <Tooltip title={!darkMode ? 'Light Mode' : 'Dark Mode'}>
                 <IconButton onClick={() => setDarkMode(!darkMode)}>
                   {darkMode ? (
                     <LightModeIcon sx={{ color: '#fff' }} /> // light icon in dark mode
