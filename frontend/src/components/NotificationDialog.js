@@ -1,4 +1,4 @@
-// frontend/src/components/NotificationDialog.js
+// frontend/src/components/NotificationDialog.js - FIXED VERSION
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 import {
@@ -27,6 +27,7 @@ import {
   ListItemText,
   ListItemAvatar,
   Avatar,
+  Divider,
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -34,6 +35,7 @@ import {
   Person as PersonIcon,
   Event as EventIcon,
   Close as CloseIcon,
+  Info as InfoIcon,
 } from '@mui/icons-material';
 
 const NotificationDialog = ({ open, onClose, onSuccess }) => {
@@ -59,7 +61,7 @@ const NotificationDialog = ({ open, onClose, onSuccess }) => {
     }
   }, [open]);
 
-  // Fetch event students when event is selected
+  // Fetch event students when event is selected for 'event' target type
   useEffect(() => {
     if (notificationData.targetType === 'event' && notificationData.eventId) {
       fetchEventStudents(notificationData.eventId);
@@ -70,7 +72,6 @@ const NotificationDialog = ({ open, onClose, onSuccess }) => {
     try {
       setLoading(true);
       const response = await api.get('/admin/students');
-      console.log('Fetched students:', response.data.length);
       setStudents(response.data);
     } catch (err) {
       console.error('Error fetching students:', err);
@@ -83,7 +84,6 @@ const NotificationDialog = ({ open, onClose, onSuccess }) => {
   const fetchEvents = async () => {
     try {
       const response = await api.get('/admin/events-list');
-      console.log('Fetched events:', response.data.length);
       setEvents(response.data);
     } catch (err) {
       console.error('Error fetching events:', err);
@@ -95,7 +95,6 @@ const NotificationDialog = ({ open, onClose, onSuccess }) => {
     try {
       setLoading(true);
       const response = await api.get(`/admin/event/${eventId}/students`);
-      console.log('Fetched event students:', response.data.length, 'for event:', eventId);
       setEventStudents(response.data);
     } catch (err) {
       console.error('Error fetching event students:', err);
@@ -122,7 +121,7 @@ const NotificationDialog = ({ open, onClose, onSuccess }) => {
       }
 
       if (notificationData.targetType === 'event' && !notificationData.eventId) {
-        setError('Please select an event');
+        setError('Please select an event for event-based targeting');
         return;
       }
 
@@ -131,25 +130,15 @@ const NotificationDialog = ({ open, onClose, onSuccess }) => {
         title: notificationData.title,
         message: notificationData.message,
         type: 'general',
-        targetType: notificationData.targetType
+        targetType: notificationData.targetType,
+        eventId: notificationData.eventId || null
       };
 
       // Add specific fields based on target type
       if (notificationData.targetType === 'specific') {
         payload.targetIds = notificationData.targetIds;
-        console.log('Sending to specific students:', notificationData.targetIds);
-      } else if (notificationData.targetType === 'event') {
-        payload.eventId = notificationData.eventId;
-        console.log('Sending to event registrants for event:', notificationData.eventId);
-      } else {
-        console.log('Sending to all students');
-      }
-
-      console.log('Full payload being sent:', JSON.stringify(payload, null, 2));
-
+      } 
       const response = await api.post('/notifications/broadcast', payload);
-      
-      console.log('Server response:', response.data);
       
       onSuccess(response.data.message);
       handleClose();
@@ -186,6 +175,11 @@ const NotificationDialog = ({ open, onClose, onSuccess }) => {
       default:
         return 0;
     }
+  };
+
+  const getSelectedEvent = () => {
+    if (!notificationData.eventId) return null;
+    return events.find(e => e.id === notificationData.eventId);
   };
 
   return (
@@ -241,7 +235,7 @@ const NotificationDialog = ({ open, onClose, onSuccess }) => {
               ...notificationData, 
               targetType: e.target.value,
               targetIds: [],
-              eventId: null
+              // Keep eventId when switching between types
             })}
           >
             <FormControlLabel
@@ -335,7 +329,7 @@ const NotificationDialog = ({ open, onClose, onSuccess }) => {
           />
         )}
 
-        {/* Event Selection */}
+        {/* Event Selection for event target type */}
         {notificationData.targetType === 'event' && (
           <>
             <FormControl fullWidth sx={{ mb: 2 }}>
@@ -375,7 +369,8 @@ const NotificationDialog = ({ open, onClose, onSuccess }) => {
                 borderRadius: 2, 
                 p: 2, 
                 maxHeight: 200, 
-                overflow: 'auto' 
+                overflow: 'auto',
+                mb: 2
               }}>
                 <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
                   Will notify {eventStudents.length} students:
@@ -412,6 +407,55 @@ const NotificationDialog = ({ open, onClose, onSuccess }) => {
           </>
         )}
 
+        <Divider sx={{ my: 3 }} />
+
+        {/* Optional Event Link for "All" and "Specific" target types */}
+        {(notificationData.targetType === 'all' || notificationData.targetType === 'specific') && (
+          <Box sx={{ mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <InfoIcon color="info" fontSize="small" />
+              <Typography variant="subtitle2" fontWeight={600}>
+                Link to Event (Optional)
+              </Typography>
+            </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+              Optionally link this notification to a specific event. The event will appear as a tag in the notification.
+            </Typography>
+            
+            <FormControl fullWidth>
+              <InputLabel>Select Event (Optional)</InputLabel>
+              <Select
+                value={notificationData.eventId || ''}
+                label="Select Event (Optional)"
+                onChange={(e) => setNotificationData({
+                  ...notificationData,
+                  eventId: e.target.value || null
+                })}
+              >
+                <MenuItem value="">
+                  <em>No Event</em>
+                </MenuItem>
+                {events.map((event) => (
+                  <MenuItem key={event.id} value={event.id}>
+                    <Box>
+                      <Typography variant="body1">{event.title}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {new Date(event.start_date).toLocaleDateString()}
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {notificationData.eventId && (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                This notification will be linked to event: <strong>{getSelectedEvent()?.title}</strong>
+              </Alert>
+            )}
+          </Box>
+        )}
+
         {/* Summary */}
         <Box sx={{ 
           mt: 3, 
@@ -423,6 +467,11 @@ const NotificationDialog = ({ open, onClose, onSuccess }) => {
           <Typography variant="body2" fontWeight={600}>
             📢 This notification will be sent to {getTargetCount()} student{getTargetCount() !== 1 ? 's' : ''}
           </Typography>
+          {notificationData.eventId && (
+            <Typography variant="caption" sx={{ display: 'block', mt: 0.5, opacity: 0.9 }}>
+              📎 Linked to: {getSelectedEvent()?.title}
+            </Typography>
+          )}
         </Box>
       </DialogContent>
 

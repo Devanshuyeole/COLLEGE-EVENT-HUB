@@ -1,4 +1,4 @@
-// frontend/src/components/Navbar.js - WITH SEPARATED NOTIFICATIONS
+// frontend/src/components/Navbar.js - COMPLETE FIXED VERSION
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -24,6 +24,7 @@ import {
   CircularProgress,
   Alert,
   Chip,
+  Snackbar,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -62,6 +63,7 @@ const Navbar = ({ darkMode, setDarkMode }) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationLoading, setNotificationLoading] = useState(false);
   const [notificationError, setNotificationError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState('');
 
   // ✅ CATEGORIZE NOTIFICATIONS
   const categorizeNotifications = (notificationsList) => {
@@ -73,29 +75,22 @@ const Navbar = ({ darkMode, setDarkMode }) => {
     weekAgo.setDate(weekAgo.getDate() - 7);
 
     const categories = {
-      new: [],      // Broadcast notifications sent today (type='general')
-      today: [],    // Other notifications from today
-      recent: [],   // Last 7 days
-      older: []     // Older than 7 days
+      new: [],
+      today: [],
+      recent: [],
+      older: []
     };
 
     notificationsList.forEach(notification => {
       const notifDate = new Date(notification.created_at);
       
-      // Check if it's a new broadcast notification from today
       if (notification.type === 'general' && notifDate >= today) {
         categories.new.push(notification);
-      }
-      // Today's notifications (excluding broadcasts)
-      else if (notifDate >= today) {
+      } else if (notifDate >= today) {
         categories.today.push(notification);
-      }
-      // This week
-      else if (notifDate >= weekAgo) {
+      } else if (notifDate >= weekAgo) {
         categories.recent.push(notification);
-      }
-      // Older
-      else {
+      } else {
         categories.older.push(notification);
       }
     });
@@ -119,14 +114,12 @@ const Navbar = ({ darkMode, setDarkMode }) => {
     try {
       setNotificationLoading(true);
       setNotificationError(null);
-      console.log('Fetching notifications for user:', userId);
       
       const response = await api.get(`/notifications/${userId}`);
-      console.log('Notifications response:', response.data);
       
       setNotifications(response.data);
     } catch (err) {
-      console.error('Error fetching notifications:', err);
+      console.error('❌ Error fetching notifications:', err);
       setNotificationError('Failed to load notifications');
     } finally {
       setNotificationLoading(false);
@@ -138,46 +131,102 @@ const Navbar = ({ darkMode, setDarkMode }) => {
     if (!userId || !token) return;
     
     try {
-      console.log('Fetching unread count for user:', userId);
       const response = await api.get(`/notifications/${userId}/unread-count`);
-      console.log('Unread count response:', response.data);
       
       setUnreadCount(response.data.count);
     } catch (err) {
-      console.error('Error fetching unread count:', err);
+      console.error('❌ Error fetching unread count:', err);
     }
   }, [userId, token]);
 
   // ✅ MARK AS READ
-  const markAsRead = async (notificationId) => {
+  const markAsRead = async (receivedNotificationId) => {
     try {
-      await api.put(`/notifications/${notificationId}/read`);
+      await api.put(`/notifications/${receivedNotificationId}/read`);
+      
+      // Update local state immediately for better UX
+      setNotifications(prevNotifications =>
+        prevNotifications.map(notif =>
+          notif.id === receivedNotificationId
+            ? { ...notif, is_read: true, read_at: new Date().toISOString() }
+            : notif
+        )
+      );
+      
+      // Update unread count
+      setUnreadCount(prev => Math.max(0, prev - 1));
+      
+      // Refresh from server
       fetchNotifications();
       fetchUnreadCount();
     } catch (err) {
-      console.error('Error marking as read:', err);
+      console.error('❌ Error marking as read:', err);
+      setNotificationError('Failed to mark notification as read');
     }
   };
 
-  // ✅ MARK ALL AS READ
+  // ✅ MARK ALL AS READ (FIXED)
   const markAllAsRead = async () => {
     try {
-      await api.put(`/notifications/${userId}/read-all`);
-      fetchNotifications();
-      fetchUnreadCount();
+      
+      if (!userId) {
+        setNotificationError('User ID not found');
+        return;
+      }
+      
+      const response = await api.put(`/notifications/${userId}/read-all`);
+      
+      // Update local state immediately
+      setNotifications(prevNotifications =>
+        prevNotifications.map(notif => ({
+          ...notif,
+          is_read: true,
+          read_at: new Date().toISOString()
+        }))
+      );
+      
+      setUnreadCount(0);
+      
+      // Show success message
+      setSuccessMessage('All notifications marked as read');
+      
+      // Refresh from server to confirm
+      await fetchNotifications();
+      await fetchUnreadCount();
+      
     } catch (err) {
-      console.error('Error marking all as read:', err);
+      console.error('❌ Error marking all as read:', err);
+      setNotificationError(err.response?.data?.message || 'Failed to mark all as read');
     }
   };
 
   // ✅ DELETE NOTIFICATION
-  const deleteNotification = async (notificationId) => {
+  const deleteNotification = async (receivedNotificationId) => {
     try {
-      await api.delete(`/notifications/${notificationId}`);
+      
+      // Get the notification to check if it's unread
+      const notifToDelete = notifications.find(n => n.id === receivedNotificationId);
+      
+      await api.delete(`/notifications/${receivedNotificationId}`);
+      
+      // Update local state
+      setNotifications(prevNotifications =>
+        prevNotifications.filter(notif => notif.id !== receivedNotificationId)
+      );
+      
+      // Update unread count if notification was unread
+      if (notifToDelete && !notifToDelete.is_read) {
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
+      
+      // Refresh from server
       fetchNotifications();
       fetchUnreadCount();
+      
+      setSuccessMessage('Notification deleted');
     } catch (err) {
-      console.error('Error deleting notification:', err);
+      console.error('❌ Error deleting notification:', err);
+      setNotificationError('Failed to delete notification');
     }
   };
 
@@ -188,9 +237,9 @@ const Navbar = ({ darkMode, setDarkMode }) => {
         return <CheckCircleIcon color="success" />;
       case 'rejection':
         return <ErrorIcon color="error" />;
-      case 'new_event':
+      case 'event_update':
         return <EventIcon color="primary" />;
-      case 'admin_alert':
+      case 'badge_earned':
         return <InfoIcon color="warning" />;
       case 'general':
         return <CampaignIcon color="info" />;
@@ -218,11 +267,9 @@ const Navbar = ({ darkMode, setDarkMode }) => {
   // ✅ FETCH UNREAD COUNT ON MOUNT AND POLL
   useEffect(() => {
     if (token && userId) {
-      console.log('Initial fetch - Token:', !!token, 'UserId:', userId);
       fetchUnreadCount();
       
       const interval = setInterval(() => {
-        console.log('Polling unread count...');
         fetchUnreadCount();
       }, 30000);
       
@@ -233,7 +280,6 @@ const Navbar = ({ darkMode, setDarkMode }) => {
   // ✅ FETCH NOTIFICATIONS WHEN DRAWER OPENS
   useEffect(() => {
     if (notificationOpen) {
-      console.log('Notification drawer opened, fetching notifications...');
       fetchNotifications();
     }
   }, [notificationOpen, fetchNotifications]);
@@ -288,6 +334,100 @@ const Navbar = ({ darkMode, setDarkMode }) => {
     </Box>
   );
 
+  // ✅ RENDER NOTIFICATION ITEM
+  const renderNotificationItem = (notification) => (
+    <React.Fragment key={notification.id}>
+      <ListItem
+        sx={{
+          bgcolor: notification.is_read ? 'transparent' : 'action.hover',
+          cursor: 'pointer',
+          '&:hover': { bgcolor: 'action.selected' },
+          py: 2,
+          px: 2,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 1
+        }}
+      >
+        <ListItemIcon sx={{ mt: 0.5, minWidth: 40 }}>
+          {getNotificationIcon(notification.type)}
+        </ListItemIcon>
+        <Box 
+          sx={{ flex: 1, minWidth: 0 }}
+          onClick={() => {
+            if (!notification.is_read) {
+              markAsRead(notification.id);
+            }
+          }}
+        >
+          <Typography
+            variant="subtitle2"
+            sx={{
+              fontWeight: notification.is_read ? 'normal' : 'bold',
+              mb: 0.5,
+              wordBreak: 'break-word'
+            }}
+          >
+            {notification.title}
+          </Typography>
+          <Typography 
+            variant="body2" 
+            color="text.secondary" 
+            sx={{ mb: 0.5, wordBreak: 'break-word' }}
+          >
+            {notification.message}
+          </Typography>
+          {notification.event_name && (
+            <Chip 
+              label={notification.event_name} 
+              size="small" 
+              icon={<EventIcon />}
+              sx={{ mb: 0.5 }}
+            />
+          )}
+          <Typography variant="caption" color="text.disabled">
+            {formatDate(notification.created_at)}
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          {!notification.is_read && (
+            <Tooltip title="Mark as read">
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  markAsRead(notification.id);
+                }}
+                sx={{ 
+                  color: 'primary.main',
+                  '&:hover': { bgcolor: 'primary.light' }
+                }}
+              >
+                <CheckCircleIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          <Tooltip title="Delete">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteNotification(notification.id);
+              }}
+              sx={{ 
+                color: 'error.main',
+                '&:hover': { bgcolor: 'error.light' }
+              }}
+            >
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      </ListItem>
+      <Divider />
+    </React.Fragment>
+  );
+
   // ✅ RENDER NOTIFICATION SECTION
   const renderNotificationSection = (title, notificationsList, icon, color) => {
     if (notificationsList.length === 0) return null;
@@ -320,64 +460,7 @@ const Navbar = ({ darkMode, setDarkMode }) => {
           />
         </Box>
         <List sx={{ p: 0 }}>
-          {notificationsList.map((notification) => (
-            <React.Fragment key={notification.id}>
-              <ListItem
-                sx={{
-                  bgcolor: notification.read_status ? 'transparent' : 'action.hover',
-                  cursor: 'pointer',
-                  '&:hover': { bgcolor: 'action.selected' },
-                  py: 2,
-                  px: 2,
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 1
-                }}
-                onClick={() => {
-                  console.log('Notification clicked:', notification.id);
-                  markAsRead(notification.id);
-                }}
-              >
-                <ListItemIcon sx={{ mt: 0.5, minWidth: 40 }}>
-                  {getNotificationIcon(notification.type)}
-                </ListItemIcon>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography
-                    variant="subtitle2"
-                    sx={{
-                      fontWeight: notification.read_status ? 'normal' : 'bold',
-                      mb: 0.5,
-                      wordBreak: 'break-word'
-                    }}
-                  >
-                    {notification.title}
-                  </Typography>
-                  <Typography 
-                    variant="body2" 
-                    color="text.secondary" 
-                    sx={{ mb: 0.5, wordBreak: 'break-word' }}
-                  >
-                    {notification.message}
-                  </Typography>
-                  <Typography variant="caption" color="text.disabled">
-                    {formatDate(notification.created_at)}
-                  </Typography>
-                </Box>
-                <IconButton
-                  size="small"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    console.log('Delete clicked:', notification.id);
-                    deleteNotification(notification.id);
-                  }}
-                  sx={{ mt: 0.5 }}
-                >
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              </ListItem>
-              <Divider />
-            </React.Fragment>
-          ))}
+          {notificationsList.map(renderNotificationItem)}
         </List>
       </Box>
     );
@@ -480,9 +563,9 @@ const Navbar = ({ darkMode, setDarkMode }) => {
               <Tooltip title={!darkMode ? 'Light Mode' : 'Dark Mode'}>
                 <IconButton onClick={() => setDarkMode(!darkMode)}>
                   {darkMode ? (
-                    <LightModeIcon sx={{ color: '#fff' }} /> // light icon in dark mode
+                    <LightModeIcon sx={{ color: '#fff' }} />
                   ) : (
-                    <DarkModeIcon sx={{ color: '#000' }} /> // dark icon in light mode
+                    <DarkModeIcon sx={{ color: '#000' }} />
                   )}
                 </IconButton>
               </Tooltip>
@@ -494,7 +577,6 @@ const Navbar = ({ darkMode, setDarkMode }) => {
                     <IconButton 
                       color="inherit" 
                       onClick={() => {
-                        console.log('Bell clicked, unread count:', unreadCount);
                         setNotificationOpen(true);
                       }}
                     >
@@ -591,7 +673,7 @@ const Navbar = ({ darkMode, setDarkMode }) => {
         {drawer}
       </Drawer>
 
-      {/* ✅ NOTIFICATION DRAWER WITH SEPARATED SECTIONS */}
+      {/* ✅ NOTIFICATION DRAWER */}
       <Drawer
         anchor="right"
         open={notificationOpen}
@@ -634,19 +716,28 @@ const Navbar = ({ darkMode, setDarkMode }) => {
               onClick={markAllAsRead}
               size="small"
             >
-              Mark all as read
+              Mark all as read ({unreadCount})
             </Button>
           </Box>
         )}
 
-        {/* Notifications List with Categories */}
+        {/* Error/Success Messages */}
+        {notificationError && (
+          <Alert 
+            severity="error" 
+            sx={{ m: 2 }} 
+            onClose={() => setNotificationError(null)}
+          >
+            {notificationError}
+          </Alert>
+        )}
+
+        {/* Notifications List */}
         <Box sx={{ flex: 1, overflow: 'auto' }}>
           {notificationLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 4 }}>
               <CircularProgress />
             </Box>
-          ) : notificationError ? (
-            <Alert severity="error" sx={{ m: 2 }}>{notificationError}</Alert>
           ) : notifications.length === 0 ? (
             <Box sx={{ p: 4, textAlign: 'center' }}>
               <NotificationsIcon sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
@@ -662,31 +753,24 @@ const Navbar = ({ darkMode, setDarkMode }) => {
               const categorized = categorizeNotifications(notifications);
               return (
                 <Box>
-                  {/* New Announcements Section */}
                   {renderNotificationSection(
                     'New Announcements',
                     categorized.new,
                     <NewReleasesIcon />,
                     '#ff9800'
                   )}
-
-                  {/* Today Section */}
                   {renderNotificationSection(
                     'Today',
                     categorized.today,
                     <EventIcon />,
                     '#2196f3'
                   )}
-
-                  {/* Recent Section */}
                   {renderNotificationSection(
                     'This Week',
                     categorized.recent,
                     <NotificationsIcon />,
                     '#9c27b0'
                   )}
-
-                  {/* Older Section */}
                   {renderNotificationSection(
                     'Older',
                     categorized.older,
@@ -699,6 +783,22 @@ const Navbar = ({ darkMode, setDarkMode }) => {
           )}
         </Box>
       </Drawer>
+
+      {/* Success Snackbar */}
+      <Snackbar
+        open={!!successMessage}
+        autoHideDuration={3000}
+        onClose={() => setSuccessMessage('')}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={() => setSuccessMessage('')} 
+          severity="success"
+          sx={{ width: '100%' }}
+        >
+          {successMessage}
+        </Alert>
+      </Snackbar>
     </>
   );
 };
